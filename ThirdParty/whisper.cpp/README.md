@@ -1,0 +1,1 @@
+Place whisper.cpp here (not Release folder!)
