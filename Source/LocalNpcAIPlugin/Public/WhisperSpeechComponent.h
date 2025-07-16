@@ -6,7 +6,6 @@
 #include "WhisperSpeechComponent.generated.h"
 
 // TODO:
-// - add -t, -ngl and other options, if needed
 // - try whisper-stream for faster(?) transcription
 // - check if VAD possible
 
@@ -22,6 +21,9 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WhisperCPP")
     FString ModelName;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "WhisperCPP")
+	int32 Threads = 4;
 
     UFUNCTION(BlueprintCallable, Category = "WhisperCPP")
 	void StartRecording();
@@ -43,11 +45,19 @@ private:
     int32 DeviceChannels;
     TArray<float> CapturedAudioData;
 	FCriticalSection AudioDataLock;
+
+    TQueue<TArray<float>> AudioDataQueue;
+    bool bIsProcessing = false;
     
-    void SaveWavFile();
+    void SaveWavFile(const TArray<float>& InAudioData);
     void TranscribeAudio();
     void CheckWhisperProcess();
+    void TryStartNextTranscription();
 
 	void BeginPlay() override;
     void BeginDestroy() override;
+
+    double WhisperStartTimeBenchmark = 0.0;
+    double WhisperEndTimeBenchmark = 0.0;
+    int32 WhisperLegthBenchmark = 0;
 };

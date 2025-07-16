@@ -43,6 +43,7 @@ public class LocalNpcAIPlugin : ModuleRules
                 "Json",
                 "JsonUtilities",
                 "HTTP",
+                "Sockets",
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

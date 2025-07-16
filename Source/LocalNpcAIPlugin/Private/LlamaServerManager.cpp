@@ -17,13 +17,29 @@ void ULlamaServerManager::Deinitialize()
     UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Server Manager Deinitialized"));
 }
 
-bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port)
+bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int32 Threads, int32 GpuLayers, int32 ContextSize)
 {
     if (Port <= 0 || Port > 65535)
     {
-        UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Invalid port number %d for model %s. Please use a valid port between 1 and 65535."), Port, *ModelName);
-        return false;
+		UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Invalid port number %d for model %s. Using default port 8080."), Port, *ModelName);
+		Port = 8080;
     }
+	if (Threads < 1 && Threads != -1)
+    {
+		UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Invalid number of threads %d for model %s. Using default value of -1."), Threads, *ModelName);
+		Threads = -1;
+	}
+    if(GpuLayers < 0)
+    {
+		UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Invalid number of GPU layers %d for model %s. Using default value of 0."), GpuLayers, *ModelName);
+		GpuLayers = 0;
+	}
+	if (ContextSize < 512 && ContextSize != 0)
+    {
+		UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Invalid context size %d for model %s. Using default value of 0."), ContextSize, *ModelName);
+		ContextSize = 0;
+	}
+
     if (IsServerRunning(ModelName))
     {
         UE_LOG(LogTemp, Warning, TEXT("[LlamaCPP] Server for model %s is already running."), *ModelName);
@@ -60,7 +76,7 @@ bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port)
         return false;
     }
 
-    FString Params = FString::Printf(TEXT("-m \"%s\" --port %d"), *ModelPath, Port);
+    FString Params = FString::Printf(TEXT("-m \"%s\" --port %d -t %d -ngl %d -c %d"), *ModelPath, Port, Threads, GpuLayers, ContextSize);
     UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Starting llama-server with params: %s"), *Params);
 
     FProcHandle ServerHandle = FPlatformProcess::CreateProc(

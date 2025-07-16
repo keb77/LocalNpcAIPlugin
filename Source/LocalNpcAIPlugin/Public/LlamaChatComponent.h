@@ -4,10 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "LlamaChatComponent.generated.h"
 
-// TODO: 
-// - add stream support
-// - check if other prompt parameters are needed/useful
-// - sanitize input and output strings (e.g. remove [action], *action*, ...)
+// TODO:
 // - check if [Memory] possible (use model to summarize chat history and add it to the prompt)
 // - check if RAG possible
 
@@ -24,6 +21,8 @@ struct FChatMessage
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaResponseReceived, const FString&, ResponseContent);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLlamaStreamTokenReceived, const FString&, Token, bool, bDone);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaChunkReceived, const FString&, Chunk);
 
 UCLASS(ClassGroup = (LlamaCPP), meta = (BlueprintSpawnableComponent))
 class LOCALNPCAIPLUGIN_API ULlamaChatComponent : public UActorComponent
@@ -46,7 +45,16 @@ public:
     float TopP = 0.95;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LlamaCPP")
-    int32 MaxTokens = 200;
+    int32 MaxTokens = 100;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LlamaCPP")
+    int32 Seed = -1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LlamaCPP")
+    float RepeatPenalty = 1.1f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LlamaCPP")
+    bool bStream = false;
 
     UFUNCTION(BlueprintCallable, Category = "LlamaCPP")
     void SendChatRequest(FString Message);
@@ -54,9 +62,29 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "LlamaCPP")
     FOnLlamaResponseReceived OnResponseReceived;
 
+    UPROPERTY(BlueprintAssignable, Category = "LlamaCPP")
+    FOnLlamaStreamTokenReceived OnStreamTokenReceived;
+
+    UPROPERTY(BlueprintAssignable, Category = "LlamaCPP")
+    FOnLlamaChunkReceived OnChunkReceived;
+
     UFUNCTION(BlueprintCallable, Category = "LlamaCPP")
     void ClearChatHistory();
 
 private:
     TArray<FChatMessage> ChatHistory;
+
+    UFUNCTION()
+    void HandleStreamChunk(const FString& PartialText, bool bDone);
+    FString AccumulatedChunk;
+    FCriticalSection ChunkMutex;
+
+    bool bProcessing = false;
+    void StartLlamaProcess(const FString& Message);
+
+    FString SanitizeString(const FString& String);
+
+	double LlamaStartTimeBenchmark = 0.0;
+	double LlamaEndTimeBenchmark = 0.0;
+    int32 LlamaLengthBenchmark = 0;
 };

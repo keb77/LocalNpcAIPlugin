@@ -4,7 +4,7 @@
 - Set up [llama.cpp](https://github.com/ggml-org/llama.cpp):
    - [Download precompiled binaries](https://github.com/ggml-org/llama.cpp/releases/) for your system architecture
    - Place the downloaded files in `LocalNpcAIPlugin/ThirdParty/llama.cpp/`
-   - Download compatible **quantized GGUF** chat/instruct models (e.g. from [Hugging Face](https://huggingface.co/))
+   - Download compatible models (e.g. from [Hugging Face](https://huggingface.co/), check [llama.cpp](https://github.com/ggml-org/llama.cpp) repository for a compatibility list)
    - Place model files in `LocalNpcAIPlugin/ThirdParty/models/`
 - Set up [whisper.cpp](https://github.com/ggml-org/whisper.cpp):
    - [Download precompiled binaries](https://github.com/ggml-org/whisper.cpp/releases) for your system architecture

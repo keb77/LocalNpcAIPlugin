@@ -78,16 +78,41 @@ void UWhisperSpeechComponent::StopRecordingAndTranscribe()
         return;
 	}
 
-    UE_LOG(LogTemp, Log, TEXT("[WhisperCPP] Audio capture stream stopped. Saving audio file..."));
-    SaveWavFile();
+    UE_LOG(LogTemp, Log, TEXT("[WhisperCPP] Recording stopped. Queuing audio data."));
+
+    {
+        FScopeLock Lock(&AudioDataLock);
+        AudioDataQueue.Enqueue(CapturedAudioData);
+        CapturedAudioData.Empty();
+    }
+
+    TryStartNextTranscription();
+}
+
+void UWhisperSpeechComponent::TryStartNextTranscription()
+{
+    if (bIsProcessing || AudioDataQueue.IsEmpty())
+    {
+        return;
+    }
+
+    TArray<float> AudioToProcess;
+    if (!AudioDataQueue.Dequeue(AudioToProcess))
+    {
+        return;
+    }
+
+    bIsProcessing = true;
+
+    SaveWavFile(AudioToProcess);
     TranscribeAudio();
 }
 
-void UWhisperSpeechComponent::SaveWavFile()
+void UWhisperSpeechComponent::SaveWavFile(const TArray<float>& InAudioData)
 {
     FScopeLock Lock(&AudioDataLock);
 
-    if (CapturedAudioData.Num() == 0)
+    if (InAudioData.Num() == 0)
     {
         UE_LOG(LogTemp, Warning, TEXT("[WhisperCPP] No audio data captured."));
         return;
@@ -98,19 +123,17 @@ void UWhisperSpeechComponent::SaveWavFile()
     int32 BitsPerSample = 16;
 
     TArray<uint8> WavData;
-    int32 NumSamples = CapturedAudioData.Num();
+    int32 NumSamples = InAudioData.Num();
     int32 DataSize = NumSamples * sizeof(int16);
     int32 FileSize = 44 + DataSize - 8;
 
-    // RIFF Header
     WavData.Append((uint8*)"RIFF", 4);
     WavData.Append((uint8*)&FileSize, 4);
     WavData.Append((uint8*)"WAVE", 4);
 
-    // fmt subchunk
     WavData.Append((uint8*)"fmt ", 4);
     uint32 Subchunk1Size = 16;
-    uint16 AudioFormat = 1; // PCM
+    uint16 AudioFormat = 1;
     WavData.Append((uint8*)&Subchunk1Size, 4);
     WavData.Append((uint8*)&AudioFormat, 2);
     WavData.Append((uint8*)&NumChannels, 2);
@@ -122,23 +145,20 @@ void UWhisperSpeechComponent::SaveWavFile()
     WavData.Append((uint8*)&BlockAlign, 2);
     WavData.Append((uint8*)&BitsPerSample, 2);
 
-    // data subchunk
     WavData.Append((uint8*)"data", 4);
     WavData.Append((uint8*)&DataSize, 4);
 
-    // Convert to Mono and float [-1.0f, 1.0f] to int16
-    for (int32 i = 0; i < CapturedAudioData.Num(); i += NumChannels)
+    for (int32 i = 0; i < InAudioData.Num(); i += NumChannels)
     {
         float MonoSample = 0.0f;
         for (int32 c = 0; c < NumChannels; ++c)
-            MonoSample += CapturedAudioData[i + c];
+            MonoSample += InAudioData[i + c];
         MonoSample /= NumChannels;
 
         int16 IntSample = static_cast<int16>(FMath::Clamp(MonoSample, -0.999f, 0.999f) * 32767.0f);
         WavData.Append((uint8*)&IntSample, sizeof(int16));
     }
 
-    // Save the file
     if (FFileHelper::SaveArrayToFile(WavData, *RecordedAudioPath))
     {
         UE_LOG(LogTemp, Log, TEXT("[WhisperCPP] WAV file saved to: %s"), *RecordedAudioPath);
@@ -147,8 +167,6 @@ void UWhisperSpeechComponent::SaveWavFile()
     {
         UE_LOG(LogTemp, Error, TEXT("[WhisperCPP] Failed to save WAV file to: %s"), *RecordedAudioPath);
     }
-
-    CapturedAudioData.Empty();
 }
 
 void UWhisperSpeechComponent::TranscribeAudio()
@@ -178,9 +196,16 @@ void UWhisperSpeechComponent::TranscribeAudio()
         UE_LOG(LogTemp, Error, TEXT("[WhisperCPP] Recorded audio file %s does not exist."), *RecordedAudioPath);
         return;
 	}
+    if (Threads <= 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[WhisperCPP] Invalid thread count %d, using default value 4."), Threads);
+        Threads = 4;
+    }
 
-	FString Params = FString::Printf(TEXT("-m \"%s\" -f \"%s\" -otxt"), *ModelPath, *RecordedAudioPath);
+	FString Params = FString::Printf(TEXT("-m \"%s\" -f \"%s\" -otxt -t %d"), *ModelPath, *RecordedAudioPath, Threads);
     UE_LOG(LogTemp, Log, TEXT("[WhisperCPP] Starting whisper-cli with params: %s"), *Params);
+
+    WhisperStartTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
 
     WhisperProcHandle = FPlatformProcess::CreateProc(
         *ExePath,
@@ -213,6 +238,10 @@ void UWhisperSpeechComponent::CheckWhisperProcess()
         {
             UE_LOG(LogTemp, Log, TEXT("[WhisperCPP] Transcription completed: %s"), *TranscribedText);
             OnTranscriptionComplete.Broadcast(TranscribedText);
+
+			WhisperEndTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
+            WhisperLegthBenchmark = TranscribedText.Len();
+			UE_LOG(LogTemp, Log, TEXT("[WhisperCPP] Transcription for %d characters completed in %.2f ms"), WhisperLegthBenchmark, WhisperEndTimeBenchmark - WhisperStartTimeBenchmark);
         }
         else
         {
@@ -220,8 +249,8 @@ void UWhisperSpeechComponent::CheckWhisperProcess()
             OnTranscriptionComplete.Broadcast(TEXT(""));
         }
 
-		//IFileManager::Get().Delete(*RecordedAudioPath);
-		//IFileManager::Get().Delete(*OutputFilePath);
+        bIsProcessing = false;
+        TryStartNextTranscription();
     }
 }
 
