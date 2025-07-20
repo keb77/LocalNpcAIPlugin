@@ -5,8 +5,9 @@
 #include "LlamaChatComponent.generated.h"
 
 // TODO:
-// - check if [Memory] possible (use model to summarize chat history and add it to the prompt)
+// - try [Memory] (use model to summarize chat history and add it to the prompt)
 // - check if RAG possible
+// - try to implement actions (model can respond with actions, given a set of known actions and objects in the scene)
 
 USTRUCT(BlueprintType)
 struct FChatMessage

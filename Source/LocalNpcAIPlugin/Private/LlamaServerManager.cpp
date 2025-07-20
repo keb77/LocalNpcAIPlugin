@@ -17,7 +17,7 @@ void ULlamaServerManager::Deinitialize()
     UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Server Manager Deinitialized"));
 }
 
-bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int32 Threads, int32 GpuLayers, int32 ContextSize)
+void ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int32 Threads, int32 GpuLayers, int32 ContextSize)
 {
     if (Port <= 0 || Port > 65535)
     {
@@ -43,14 +43,12 @@ bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int3
     if (IsServerRunning(ModelName))
     {
         UE_LOG(LogTemp, Warning, TEXT("[LlamaCPP] Server for model %s is already running."), *ModelName);
-        return true;
     }
     for (const auto& Pair : ModelServers)
     {
         if (Pair.Value.Port == Port)
         {
             UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Port %d is already in use by model %s."), Port, *Pair.Key);
-            return false;
         }
     }
 
@@ -58,7 +56,6 @@ bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int3
     if (!Plugin.IsValid())
     {
         UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Plugin LocalNpcAIPlugin not found!"));
-        return false;
     }
     FString PluginDir = Plugin->GetBaseDir();
 
@@ -68,12 +65,10 @@ bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int3
     if (!FPaths::FileExists(ExePath))
     {
         UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Executable file %s does not exist."), *ExePath);
-        return false;
     }
     if (!FPaths::FileExists(ModelPath))
     {
         UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Model file %s does not exist."), *ModelPath);
-        return false;
     }
 
     FString Params = FString::Printf(TEXT("-m \"%s\" --port %d -t %d -ngl %d -c %d"), *ModelPath, Port, Threads, GpuLayers, ContextSize);
@@ -90,7 +85,6 @@ bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int3
     if (!ServerHandle.IsValid())
     {
         UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Failed to start llama-server!"));
-        return false;
     }
 
     FLLamaServerProcessInfo Info;
@@ -99,7 +93,28 @@ bool ULlamaServerManager::StartServer(const FString& ModelName, int32 Port, int3
     ModelServers.Add(ModelName, Info);
 
     UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Started llama-server for model %s on port %d"), *ModelName, Port);
-    return true;
+}
+
+void ULlamaServerManager::AddServer(const FString& ModelName, int32 Port)
+{
+    if (IsServerRunning(ModelName))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LlamaCPP] Server for model %s is already running."), *ModelName);
+    }
+    for (const auto& Pair : ModelServers)
+    {
+        if (Pair.Value.Port == Port)
+        {
+            UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Port %d is already in use by model %s."), Port, *Pair.Key);
+        }
+    }
+
+    FLLamaServerProcessInfo Info;
+    Info.Port = Port;
+	Info.ProcessHandle = FProcHandle();
+    ModelServers.Add(ModelName, Info);
+
+    UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Added llama-server for model %s on port %d"), *ModelName, Port);
 }
 
 bool ULlamaServerManager::IsServerRunning(const FString& ModelName) const

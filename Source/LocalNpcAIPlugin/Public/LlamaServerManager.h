@@ -4,9 +4,6 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "LlamaServerManager.generated.h"
 
-// TODO
-// - add llama server ready event
-
 USTRUCT(BlueprintType)
 struct FLLamaServerProcessInfo
 {
@@ -26,7 +23,10 @@ public:
     virtual void Deinitialize() override;
 
     UFUNCTION(BlueprintCallable, Category = "LlamaCPP")
-	bool StartServer(const FString& ModelName, int32 Port = 8080, int32 Threads = -1, int32 GpuLayers = 0, int32 ContextSize = 0);
+	void StartServer(const FString& ModelName, int32 Port = 8080, int32 Threads = -1, int32 GpuLayers = 0, int32 ContextSize = 0);
+
+    UFUNCTION(BlueprintCallable, Category = "LlamaCPP")
+    void AddServer(const FString& ModelName, int32 Port = 8080);
 
     UFUNCTION(BlueprintCallable, Category = "LlamaCPP")
     bool IsServerRunning(const FString& ModelName) const;
