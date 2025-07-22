@@ -88,4 +88,9 @@ private:
 	double LlamaStartTimeBenchmark = 0.0;
 	double LlamaEndTimeBenchmark = 0.0;
     int32 LlamaLengthBenchmark = 0;
+
+    double TokenStartTimeBenchmark = 0.0;
+    double TokenEndTimeBenchmark = 0.0;
+    double ChunkStartTimeBenchmark = 0.0;
+    double ChunkEndTimeBenchmark = 0.0;
 };

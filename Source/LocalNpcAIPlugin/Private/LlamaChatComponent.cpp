@@ -259,6 +259,9 @@ void ULlamaChatComponent::StartLlamaProcess(const FString& Message)
                 const double TimeoutSeconds = 30.0;
                 double StartTime = FPlatformTime::Seconds();
 
+                TokenStartTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
+                ChunkStartTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
+
                 while (!bDone && (FPlatformTime::Seconds() - StartTime) < TimeoutSeconds)
                 {
                     if (Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromSeconds(1.0f)))
@@ -301,27 +304,38 @@ void ULlamaChatComponent::StartLlamaProcess(const FString& Message)
                                                         {
                                                             OnStreamTokenReceived.Broadcast(PartialText, bDone);
                                                             UE_LOG(LogTemp, Verbose, TEXT("[LlamaCPP] Streamed token: %s"), *PartialText);
+
+															TokenEndTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
+															UE_LOG(LogTemp, Verbose, TEXT("[LlamaCPP] Token processed in %.2f ms"), TokenEndTimeBenchmark - TokenStartTimeBenchmark);
+															TokenStartTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
 														});
                                                 }
                                                 else
                                                 {
                                                     UE_LOG(LogTemp, Warning, TEXT("[LlamaCPP] No content field in delta"));
+													UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Payload: %s"), *Payload);
                                                 }
                                             }
                                             else
                                             {
                                                 UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] No delta field in choice"));
+                                                UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Payload: %s"), *Payload);
                                             }
                                         }
                                         else
                                         {
                                             UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] No choices found in streamed data"));
+                                            UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Payload: %s"), *Payload);
                                         }
                                     }
                                     else
                                     {
                                         UE_LOG(LogTemp, Error, TEXT("[LlamaCPP] Failed to parse JSON from streamed data: %s"), *Payload);
                                     }
+                                }
+                                else
+                                {
+                                    UE_LOG(LogTemp, Verbose, TEXT("[LlamaCPP] Ignoring line: %s"), *Line);
                                 }
                             }
                         }
@@ -368,6 +382,8 @@ void ULlamaChatComponent::HandleStreamChunk(const FString& Token, bool bDone)
         {
             OnChunkReceived.Broadcast(SanitizedChunk);
             UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Chunk: %s"), *SanitizedChunk);
+			ChunkEndTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
+			UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Chunk processed in %.2f ms"), ChunkEndTimeBenchmark - ChunkStartTimeBenchmark);
         }
 		AccumulatedChunk.Empty();
 		return;
@@ -382,7 +398,7 @@ void ULlamaChatComponent::HandleStreamChunk(const FString& Token, bool bDone)
     for (int32 i = 0; i < AccumulatedChunk.Len(); ++i)
     {
 		TCHAR CurrentChar = AccumulatedChunk[i];
-        if (CurrentChar == '.' || CurrentChar == '!' || CurrentChar == '?' || CurrentChar == ',' || CurrentChar == ';' || CurrentChar == '\n' || CurrentChar == '\r')
+        if (CurrentChar == '.' || CurrentChar == '!' || CurrentChar == '?' || CurrentChar == ';' || CurrentChar == '\n' || CurrentChar == '\r')
         {
             bool bIsAbbreviation = false;
             if (CurrentChar == '.')
@@ -420,6 +436,13 @@ void ULlamaChatComponent::HandleStreamChunk(const FString& Token, bool bDone)
     {
         OnChunkReceived.Broadcast(Chunk);
         UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Chunk: %s"), *Chunk);
+		ChunkEndTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
+		UE_LOG(LogTemp, Log, TEXT("[LlamaCPP] Chunk processed in %.2f ms"), ChunkEndTimeBenchmark - ChunkStartTimeBenchmark);
+        ChunkStartTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
+    }
+    else
+    {
+		UE_LOG(LogTemp, Verbose, TEXT("[LlamaCPP] Empty chunk received, ignoring"));
     }
 }
 
