@@ -6,8 +6,8 @@
 
 // TODO:
 // - try [Memory] (use model to summarize chat history and add it to the prompt)
-// - check if RAG possible
-// - try to implement actions (model can respond with actions, given a set of known actions and objects in the scene)
+// - try RAG (llama-embedding to embed file and question, compute cosine similarity, get top N results, add them to the prompt)
+// - try actions (model can respond with <actions>, given a set of known actions and objects in the scene)
 
 USTRUCT(BlueprintType)
 struct FChatMessage
