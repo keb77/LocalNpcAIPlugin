@@ -27,7 +27,6 @@
 
 # Executables
 *.exe
-!ThirdParty/piper/run_piper.exe
 *.out
 *.app
 *.ipa
