@@ -7,7 +7,7 @@
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWhisperTranscriptionComplete, const FString&, Transcription);
 
-UCLASS(ClassGroup = (LocalAiNpc), meta = (BlueprintSpawnableComponent))
+UCLASS(ClassGroup = (NpcAI), meta = (BlueprintSpawnableComponent))
 class LOCALNPCAIPLUGIN_API UWhisperComponent : public UActorComponent
 {
     GENERATED_BODY()
@@ -44,6 +44,8 @@ private:
 
     TArray<uint8> CreateMultiPartRequest(FString FilePath);
     FString CurrentBoundary;
+
+	FString SanitizeString(const FString& String);
 
 	void BeginPlay() override;
     void BeginDestroy() override;

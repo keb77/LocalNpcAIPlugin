@@ -18,9 +18,9 @@ struct FChatMessage
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaResponseReceived, const FString&, Response);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLlamaStreamTokenReceived, const FString&, Token, bool, bDone);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaChunkReceived, const FString&, Chunk);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLlamaChunkReceived, const FString&, Chunk, bool, bDone);
 
-UCLASS(ClassGroup = (LocalAiNpc), meta = (BlueprintSpawnableComponent))
+UCLASS(ClassGroup = (NpcAI), meta = (BlueprintSpawnableComponent))
 class LOCALNPCAIPLUGIN_API ULlamaComponent : public UActorComponent
 {
     GENERATED_BODY()

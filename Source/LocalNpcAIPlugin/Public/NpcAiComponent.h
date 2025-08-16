@@ -7,6 +7,8 @@
 #include "KokoroComponent.h"
 #include "NpcAiComponent.generated.h"
 
+class UPlayerAiComponent;
+
 UCLASS(ClassGroup = (NpcAI), meta = (BlueprintSpawnableComponent))
 class LOCALNPCAIPLUGIN_API UNpcAiComponent : public USceneComponent
 {
@@ -14,6 +16,9 @@ class LOCALNPCAIPLUGIN_API UNpcAiComponent : public USceneComponent
 
 public:
     UNpcAiComponent();
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc")
+    FString Name = TEXT("NPC");
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Whisper")
     int32 WhisperPort = 8000;
@@ -63,6 +68,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LocalAiNpc")
     void SendText(FString Input);
 
+    UPROPERTY()
+    bool bIsUsersConversationTurn = true;
+
 private:
     UPROPERTY()
     UWhisperComponent* WhisperComponent; 
@@ -75,10 +83,16 @@ private:
 	void HandleWhisperTranscriptionComplete(const FString& Transcription);
 	UFUNCTION()
 	void HandleLlamaResponseReceived(const FString& Response);
+    UFUNCTION()
+    void HandleLlamaChunkReceived(const FString& Chunk, bool bDone);
 	UFUNCTION()
     void HandleKokoroSoundReady(FSoundWaveWithDuration SoundWave);
 
-	bool bIsUsersConversationTurn = true;
+	bool bIsWhisperRecording = false;
+
+	bool bIsFirstChunk = true;
+
+    UPlayerAiComponent* PlayerAiComponent;
 
     void BeginPlay() override;
 };

@@ -349,6 +349,12 @@ void ULlamaComponent::SendChatMessage(FString Message)
 
                     return;
 				}
+
+				FString SanitizedResponse = SanitizeString(FullResponse);
+                AsyncTask(ENamedThreads::GameThread, [this, SanitizedResponse]()
+                    {
+                        OnResponseReceived.Broadcast(SanitizedResponse);
+                    });
             });
     }
 }
@@ -398,12 +404,17 @@ void ULlamaComponent::HandleStreamChunk(const FString& Token, bool bDone)
 		FString SanitizedChunk = SanitizeString(AccumulatedChunk);
         if (SanitizedChunk.Len() > 1)
         {
-            OnChunkReceived.Broadcast(SanitizedChunk);
+            OnChunkReceived.Broadcast(SanitizedChunk, bDone);
             UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Chunk: %s"), *SanitizedChunk);
 
 			double ChunkEndTimeBenchmark = FPlatformTime::Seconds() * 1000.0;
 			UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Chunk processed in %.2f ms"), ChunkEndTimeBenchmark - ChunkStartTimeBenchmark);
         }
+        else
+        {
+			OnChunkReceived.Broadcast(TEXT(""), bDone);
+        }
+
 		AccumulatedChunk.Empty();
 		return;
 	}
@@ -453,7 +464,7 @@ void ULlamaComponent::HandleStreamChunk(const FString& Token, bool bDone)
 
     if (Chunk.Len() > 1)
     {
-        OnChunkReceived.Broadcast(Chunk);
+        OnChunkReceived.Broadcast(Chunk, bDone);
         UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Chunk: %s"), *Chunk);
 
 		double ChunkEndTimeBenchmark = FPlatformTime::Seconds() * 1000.0;

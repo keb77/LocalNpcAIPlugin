@@ -18,7 +18,7 @@ struct FSoundWaveWithDuration
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnKokoroSoundReady, FSoundWaveWithDuration, SoundWave);
 
-UCLASS(ClassGroup = (LocalAINpc), meta = (BlueprintSpawnableComponent))
+UCLASS(ClassGroup = (NpcAI), meta = (BlueprintSpawnableComponent))
 class LOCALNPCAIPLUGIN_API UKokoroComponent : public USceneComponent
 {
     GENERATED_BODY()

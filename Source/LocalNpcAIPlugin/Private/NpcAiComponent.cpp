@@ -1,4 +1,5 @@
 #include "NpcAiComponent.h"
+#include "PlayerAiComponent.h"
 
 UNpcAiComponent::UNpcAiComponent()
 {
@@ -9,17 +10,24 @@ void UNpcAiComponent::StartWhisperRecording()
 {
     if (!WhisperComponent)
     {
-        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] WhisperComponent is not initialized."));
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] WhisperComponent is not initialized."));
         return;
 	}
 
     if (!bIsUsersConversationTurn)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc] Not the user's turn to speak."));
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] Not the user's turn to speak."));
         return;
     }
 
+    if (bIsWhisperRecording)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] Whisper recording is already active."));
+		return;
+	}
+
 	bIsUsersConversationTurn = false;
+	bIsWhisperRecording = true;
 
 	WhisperComponent->StartRecording();
 }
@@ -28,25 +36,33 @@ void UNpcAiComponent::StopWhisperRecordingAndSendAudio()
 {
     if (!WhisperComponent)
     {
-        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] WhisperComponent is not initialized."));
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] WhisperComponent is not initialized."));
         return;
     }
 
+    if (!bIsWhisperRecording)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] Whisper recording is not active."));
+        return;
+	}
+
     FString AudioPath = WhisperComponent->StopRecording();
 	WhisperComponent->TranscribeAudio(AudioPath);
+
+    bIsWhisperRecording = false;
 }
 
 void UNpcAiComponent::SendText(FString Input)
 {
     if (!LlamaComponent)
     {
-        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] LlamaComponent is not initialized."));
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] LlamaComponent is not initialized."));
         return;
 	}
 
     if (!bIsUsersConversationTurn)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc] Not the user's turn to speak."));
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] Not the user's turn to speak."));
         return;
     }
 
@@ -84,7 +100,7 @@ void UNpcAiComponent::BeginPlay()
         LlamaComponent->bStream = bStream;
 
 		LlamaComponent->OnResponseReceived.AddDynamic(this, &UNpcAiComponent::HandleLlamaResponseReceived);
-        LlamaComponent->OnChunkReceived.AddDynamic(this, &UNpcAiComponent::HandleLlamaResponseReceived);
+        LlamaComponent->OnChunkReceived.AddDynamic(this, &UNpcAiComponent::HandleLlamaChunkReceived);
     }
 
     KokoroComponent = NewObject<UKokoroComponent>(this, UKokoroComponent::StaticClass(), TEXT("KokoroComponent"));
@@ -102,24 +118,38 @@ void UNpcAiComponent::BeginPlay()
 
     if (!WhisperComponent || !LlamaComponent || !KokoroComponent)
     {
-        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] Failed to initialize components."));
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] Failed to initialize components."));
 
         bIsUsersConversationTurn = true;
 
         return;
 	}
+
+    APawn* PlayerPawn = GetWorld()->GetFirstPlayerController()->GetPawn();
+    if (PlayerPawn)
+    {
+        PlayerAiComponent = PlayerPawn->FindComponentByClass<UPlayerAiComponent>();
+    }
 }
 
 void UNpcAiComponent::HandleWhisperTranscriptionComplete(const FString& Transcription)
 {
     if (Transcription.IsEmpty())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc] Received empty transcription. Ignoring."));
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] Received empty transcription. Ignoring."));
 
         bIsUsersConversationTurn = true;
-
         return;
 	}
+
+    if (PlayerAiComponent && PlayerAiComponent->ChatWidgetInstance)
+    {
+        PlayerAiComponent->ChatWidgetInstance->AddMessage(PlayerAiComponent->Name, Transcription);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] PlayerAiComponent or ChatWidgetInstance not found. Add PlayerAiComponent to Player Pawn to see chat messages."));
+    }
 
     if (LlamaComponent)
     {
@@ -127,7 +157,7 @@ void UNpcAiComponent::HandleWhisperTranscriptionComplete(const FString& Transcri
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] LlamaComponent is not initialized."));
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] LlamaComponent is not initialized."));
 
         bIsUsersConversationTurn = true;
 	}
@@ -137,7 +167,7 @@ void UNpcAiComponent::HandleLlamaResponseReceived(const FString& Response)
 {
     if (Response.IsEmpty())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc] Received empty response."));
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] Received empty response."));
 
         if(KokoroComponent)
         {
@@ -145,32 +175,88 @@ void UNpcAiComponent::HandleLlamaResponseReceived(const FString& Response)
         }
         else
         {
-			UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] KokoroComponent is not initialized."));
-
-			bIsUsersConversationTurn = true;
+			UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] KokoroComponent is not initialized."));
 		}
 
+        if (PlayerAiComponent && PlayerAiComponent->ChatWidgetInstance)
+        {
+            PlayerAiComponent->ChatWidgetInstance->AddMessage(Name, TEXT("I'm sorry, I didn't understand that. Could you please repeat?"));
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] PlayerAiComponent or ChatWidgetInstance not found. Add PlayerAiComponent to Player Pawn to see chat messages."));
+        }
+
+        bIsUsersConversationTurn = true;
         return;
     }
+
+    if (PlayerAiComponent && PlayerAiComponent->ChatWidgetInstance)
+    {
+        PlayerAiComponent->ChatWidgetInstance->AddMessage(Name, Response);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] PlayerAiComponent or ChatWidgetInstance not found. Add PlayerAiComponent to Player Pawn to see chat messages."));
+    }
+
     if (KokoroComponent)
     {
         KokoroComponent->CreateSoundWave(Response);
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] KokoroComponent is not initialized."));
-
-        bIsUsersConversationTurn = true;
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] KokoroComponent is not initialized."));
 	}
+
+    bIsUsersConversationTurn = true;
+}
+
+void UNpcAiComponent::HandleLlamaChunkReceived(const FString& Chunk, bool bDone)
+{
+    if (PlayerAiComponent && PlayerAiComponent->ChatWidgetInstance)
+    {
+        if (bIsFirstChunk)
+        {
+            PlayerAiComponent->ChatWidgetInstance->AddMessage(Name, Chunk);
+            bIsFirstChunk = false;
+
+			UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | NpcAiComponent] First chunk received: %s"), *Chunk);
+        }
+        else if (bDone)
+        {
+            PlayerAiComponent->ChatWidgetInstance->RemoveLastMessage();
+            bIsFirstChunk = true;
+
+			UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | NpcAiComponent] Last chunk received: %s"), *Chunk);
+        }
+        else
+        {
+            PlayerAiComponent->ChatWidgetInstance->AppendToLastMessage(Chunk);
+
+			UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | NpcAiComponent] Chunk received: %s"), *Chunk);
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] PlayerAiComponent or ChatWidgetInstance not found. Add PlayerAiComponent to Player Pawn to see chat messages."));
+    }
+
+    if (KokoroComponent)
+    {
+        KokoroComponent->CreateSoundWave(Chunk);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] KokoroComponent is not initialized."));
+    }
 }
 
 void UNpcAiComponent::HandleKokoroSoundReady(FSoundWaveWithDuration SoundWave)
 {
     if (!SoundWave.SoundWave)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc] Received empty sound wave. Ignoring."));
-
-        bIsUsersConversationTurn = true;
+        UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | NpcAiComponent] Received empty sound wave. Ignoring."));
 
         return;
     }
@@ -178,13 +264,9 @@ void UNpcAiComponent::HandleKokoroSoundReady(FSoundWaveWithDuration SoundWave)
 	if (KokoroComponent)
     {
         KokoroComponent->PlaySoundWave(SoundWave);
-
-        bIsUsersConversationTurn = true;
     }
     else
     {
-        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc] KokoroComponent is not initialized."));
-
-        bIsUsersConversationTurn = true;
+        UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] KokoroComponent is not initialized."));
 	}
 }

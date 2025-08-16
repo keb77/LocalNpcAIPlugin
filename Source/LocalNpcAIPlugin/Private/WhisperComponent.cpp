@@ -222,9 +222,11 @@ void UWhisperComponent::TranscribeAudio(const FString& AudioPath)
 			UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Whisper] Transcription completed in %.2f ms, %d characters received."), DurationBenchmark, LengthBenchmark);
             UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Whisper] Result: %s"), *ResultText);
 
-            AsyncTask(ENamedThreads::GameThread, [this, ResultText]()
+			FString SanitizedResult = SanitizeString(ResultText);
+
+            AsyncTask(ENamedThreads::GameThread, [this, SanitizedResult]()
                 {
-                    OnTranscriptionComplete.Broadcast(ResultText);
+                    OnTranscriptionComplete.Broadcast(SanitizedResult);
                 });
         });
 
@@ -268,6 +270,35 @@ TArray<uint8> UWhisperComponent::CreateMultiPartRequest(FString FilePath)
     AppendLine("--" + Boundary + "--");
 
     return Payload;
+}
+
+FString UWhisperComponent::SanitizeString(const FString& String)
+{
+    FString Result = String;
+
+    auto RegexReplace = [](const FString& InputStr, const FString& PatternStr) -> FString
+        {
+            FRegexPattern Pattern(PatternStr);
+            FRegexMatcher Matcher(Pattern, InputStr);
+            FString Output = InputStr;
+
+            while (Matcher.FindNext())
+            {
+                int32 MatchBeginning = Matcher.GetMatchBeginning();
+                int32 MatchEnding = Matcher.GetMatchEnding();
+                Output.RemoveAt(MatchBeginning, MatchEnding - MatchBeginning);
+                Matcher = FRegexMatcher(Pattern, Output);
+            }
+
+            return Output;
+        };
+
+    Result = RegexReplace(Result, TEXT("\\[[^\\]]*\\]"));
+    Result = RegexReplace(Result, TEXT("\\*[^\\*]*\\*"));
+    Result = RegexReplace(Result, TEXT("<[^>]*>"));
+    Result = Result.TrimStartAndEnd();
+
+    return Result;
 }
 
 void UWhisperComponent::BeginDestroy()
