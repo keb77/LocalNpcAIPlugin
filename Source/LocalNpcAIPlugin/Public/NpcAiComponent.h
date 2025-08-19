@@ -36,7 +36,7 @@ public:
     float TopP = 0.95;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Llama")
-    int32 MaxTokens = 100;
+    int32 MaxTokens = 300;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Llama")
     int32 Seed = -1;
@@ -46,6 +46,30 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Llama")
     bool bStream = false;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG")
+    ERagMode RagMode = ERagMode::Disabled;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides))
+    FString KnowledgePath;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides, ClampMin = "1"))
+    int32 EmbeddingTopK = 10;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode == ERagMode::EmbeddingPlusReranker", EditConditionHides, ClampMin = "1"))
+    int32 RerankingTopN = 3;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides, ClampMin = "1"))
+    int32 SentencesPerChunk = 3;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides, ClampMin = "0"))
+    int32 SentenceOverlap = 1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides))
+    int32 EmbeddingPort = 8081;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode == ERagMode::EmbeddingPlusReranker", EditConditionHides))
+    int32 RerankerPort = 8082;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAINpc | Kokoro")
     int32 KokoroPort = 8880;

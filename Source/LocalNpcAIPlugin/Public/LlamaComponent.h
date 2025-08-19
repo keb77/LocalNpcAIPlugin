@@ -4,16 +4,32 @@
 #include "Components/ActorComponent.h"
 #include "LlamaComponent.generated.h"
 
-USTRUCT(BlueprintType)
+USTRUCT()
 struct FChatMessage
 {
     GENERATED_BODY()
-
-    UPROPERTY(BlueprintReadWrite)
+    UPROPERTY()
     FString Role;
-
-    UPROPERTY(BlueprintReadWrite)
+    UPROPERTY()
     FString Content;
+};
+
+UENUM(BlueprintType)
+enum class ERagMode : uint8
+{
+    Disabled               UMETA(DisplayName = "Disabled"),
+    Embedding              UMETA(DisplayName = "Embedding"),
+    EmbeddingPlusReranker  UMETA(DisplayName = "Embedding + Reranker")
+};
+
+USTRUCT()
+struct FKnowledgeEntry
+{
+    GENERATED_BODY()
+    UPROPERTY() 
+    FString Text;
+    UPROPERTY() 
+    TArray<float> Embedding;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaResponseReceived, const FString&, Response);
@@ -41,7 +57,7 @@ public:
     float TopP = 0.95;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Llama")
-    int32 MaxTokens = 100;
+    int32 MaxTokens = 300;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Llama")
     int32 Seed = -1;
@@ -67,10 +83,37 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LocalAiNpc | Llama")
     void ClearChatHistory();
 
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG")
+    ERagMode RagMode = ERagMode::Disabled;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides))
+    FString KnowledgePath;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides, ClampMin = "1"))
+    int32 EmbeddingTopK = 10;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode == ERagMode::EmbeddingPlusReranker", EditConditionHides, ClampMin = "1"))
+    int32 RerankingTopN = 3;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides, ClampMin = "1"))
+    int32 SentencesPerChunk = 3;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides, ClampMin = "0"))
+    int32 SentenceOverlap = 1;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides))
+    int32 EmbeddingPort = 8081;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode == ERagMode::EmbeddingPlusReranker", EditConditionHides))
+    int32 RerankerPort = 8082;
+
 private:
     TArray<FChatMessage> ChatHistory;
 
-	FString CreateJsonRequest();
+    void SendRequest(FString InSystemMessage);
+    void SendRequestStreaming(FString InSystemMessage);
+    FString CreateJsonRequest(FString InSystemMessage);
 
     UFUNCTION()
     void HandleStreamChunk(const FString& PartialText, bool bDone);
@@ -79,5 +122,15 @@ private:
 
     FString SanitizeString(const FString& String);
 
-	double ChunkStartTimeBenchmark = 0.0;
+    double ChunkStartTimeBenchmark = 0.0;
+
+
+    TArray<FKnowledgeEntry> Knowledge;
+    TArray<float> EmbedText(const FString& Text);
+	void GenerateKnowledge();
+    float ComputeCosineSimilarity(const TArray<float>& A, const TArray<float>& B);
+    TArray<FString> GetTopKDocuments(const TArray<float>& QueryEmbedding);
+    TArray<FString> RerankDocuments(const FString& Query, const TArray<FString>& Documents);
+
+	void BeginPlay() override;
 };
