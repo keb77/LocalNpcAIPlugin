@@ -72,5 +72,6 @@ private:
 	void UpdateHintText();
 	FString LastHintText;
 
-    void BeginPlay() override;
+protected:
+    virtual void BeginPlay() override;
 };

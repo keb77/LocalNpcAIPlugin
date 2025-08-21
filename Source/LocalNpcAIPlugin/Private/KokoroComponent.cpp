@@ -237,8 +237,10 @@ void UKokoroComponent::AudioFinishedHandler()
 	PlayNextInQueue();
 }
 
-void UKokoroComponent::BeginDestroy()
+void UKokoroComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    Super::EndPlay(EndPlayReason);
+
     if (!OutputAudioFolder.IsEmpty() && IFileManager::Get().DirectoryExists(*OutputAudioFolder))
     {
         TArray<FString> FilesToDelete;
@@ -254,6 +256,4 @@ void UKokoroComponent::BeginDestroy()
         }
         UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Kokoro] Cleaned up files in %s"), *OutputAudioFolder);
     }
-
-    Super::BeginDestroy();
 }

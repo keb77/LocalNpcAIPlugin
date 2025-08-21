@@ -4,6 +4,7 @@
 #include "HttpModule.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
+#include "AudioResampler.h"
 
 UWhisperComponent::UWhisperComponent()
 {
@@ -38,9 +39,54 @@ void UWhisperComponent::BeginPlay()
             const float* AudioBuffer = static_cast<const float*>(InAudio);
             const int32 NumSamples = NumFrames * NumChannels;
 
+            TArray<float> MonoBuffer;
+            MonoBuffer.SetNumUninitialized(NumFrames);
+            for (int32 i = 0; i < NumFrames; i++)
+            {
+                float Sum = 0.f;
+                for (int32 c = 0; c < NumChannels; c++)
+                {
+                    Sum += AudioBuffer[i * NumChannels + c];
+                }
+                MonoBuffer[i] = Sum / NumChannels;
+            }
+
             FScopeLock Lock(&AudioDataLock);
-            CapturedAudioData.Append(AudioBuffer, NumSamples);
+
+            if (IsSpeechFrame(MonoBuffer.GetData(), MonoBuffer.Num(), SampleRate))
+            {
+                CapturedAudioData.Append(MonoBuffer.GetData(), MonoBuffer.Num());
+                SilenceSamplesCount = 0;
+            }
+            else if (CapturedAudioData.Num() > 0)
+            {
+                SilenceSamplesCount += MonoBuffer.Num();
+                CapturedAudioData.Append(MonoBuffer.GetData(), MonoBuffer.Num());
+
+                if (SilenceSamplesCount >= SecondsOfSilenceBeforeSend * SampleRate)
+                {
+                    if (CapturedAudioData.Num() >= MinSpeechDuration * SampleRate)
+                    {
+                        TArray<float> AudioToSave;
+                        AudioToSave = CapturedAudioData;
+                        CapturedAudioData.Empty();
+                        SilenceSamplesCount = 0;
+
+                        FString Guid = FGuid::NewGuid().ToString(EGuidFormats::Short);
+                        FString AudioPath = FPaths::Combine(RecordedAudioFolder, FString::Printf(TEXT("whisper-%s.wav"), *Guid));
+
+                        SaveWavFile(AudioToSave, AudioPath);
+						TranscribeAudio(AudioPath);
+                    }
+                    else
+                    {
+                        CapturedAudioData.Empty();
+                        SilenceSamplesCount = 0;
+                    }
+                }
+            }
         };
+
     if (!AudioCapture.OpenAudioCaptureStream(CaptureParams, CaptureCallback, 1024))
     {
         UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | Whisper] Failed to open audio capture stream."));
@@ -48,6 +94,32 @@ void UWhisperComponent::BeginPlay()
     }
 
 	UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Whisper] Audio capture stream opened successfully on device %s"), *DeviceInfo.DeviceName);
+
+    
+    if (VadMode == EVadMode::WebRTC)
+    {
+        VadInstance = fvad_new();
+        if (VadInstance)
+        {
+            fvad_set_mode(VadInstance, WebRtcVadAggressiveness);
+
+            if (fvad_set_sample_rate(VadInstance, WebRtcVadSampleRate) < 0)
+            {
+                UE_LOG(LogTemp, Error, TEXT("[WebRTC VAD] Failed to set sample rate!"));
+            }
+
+            UE_LOG(LogTemp, Log, TEXT("[WebRTC VAD] Initialized with Aggressiveness=%d"), WebRtcVadAggressiveness);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Error, TEXT("[WebRTC VAD] Failed to create VAD instance!"));
+        }
+    }
+
+    if (VadMode != EVadMode::Disabled)
+    {
+        StartRecording();
+    }
 }
 
 void UWhisperComponent::StartRecording()
@@ -64,7 +136,10 @@ void UWhisperComponent::StartRecording()
         return;
 	}
 
-    CapturedAudioData.Empty();
+    {
+        FScopeLock Lock(&AudioDataLock);
+        CapturedAudioData.Empty();
+    }
 
     if (!AudioCapture.StartStream())
     {
@@ -77,6 +152,12 @@ void UWhisperComponent::StartRecording()
 
 FString UWhisperComponent::StopRecording()
 {
+    if (VadMode != EVadMode::Disabled)
+    {
+		UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | Whisper] VAD is enabled. Recording will stop automatically when speech is detected."));
+		return TEXT("");
+    }
+
 	if (!AudioCapture.IsStreamOpen() || !AudioCapture.IsCapturing())
     {
         UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | Whisper] Not currently recording."));
@@ -106,7 +187,7 @@ FString UWhisperComponent::StopRecording()
 	return AudioPath;
 }
 
-void UWhisperComponent::SaveWavFile(const TArray<float>& InAudioData, FString OutputPath)
+void UWhisperComponent::SaveWavFile(const TArray<float>& InAudioData, FString OutputPath) const
 {
     if (InAudioData.Num() == 0)
     {
@@ -301,19 +382,113 @@ FString UWhisperComponent::SanitizeString(const FString& String)
     return Result;
 }
 
-void UWhisperComponent::BeginDestroy()
+bool UWhisperComponent::IsSpeechFrame(const float* Samples, int32 NumSamples, int32 SampleRate)
 {
+    switch (VadMode)
+    {
+        case EVadMode::Disabled:
+            return true;
+
+        case EVadMode::EnergyBased:
+        {
+            double SumSquares = 0.0;
+            for (int32 i = 0; i < NumSamples; i++)
+            {
+                SumSquares += Samples[i] * Samples[i];
+            }
+            double Rms = FMath::Sqrt(SumSquares / FMath::Max(1, NumSamples));
+
+            UE_LOG(LogTemp, Verbose, TEXT("[LocalAINpc | VAD] RMS=%.5f, Threshold=%.5f"), Rms, EnergyThreshold);
+
+            return (Rms >= EnergyThreshold);
+        }
+
+        case EVadMode::WebRTC:
+        {
+            if (VadInstance == nullptr)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | VAD] WebRTC instance not initialized!"));
+                return false;
+            }
+
+            const int32 FrameDurationMs = 20;
+            const int32 FrameSize = WebRtcVadSampleRate * FrameDurationMs / 1000;
+
+            if (SampleRate != WebRtcVadSampleRate)
+            {
+                Audio::VectorOps::FAlignedFloatBuffer InputBuffer(const_cast<float*>(Samples), NumSamples);
+
+                Audio::FResamplingParameters Params = {
+                    Audio::EResamplingMethod::BestSinc,
+                    1,
+                    SampleRate,
+                    WebRtcVadSampleRate,
+                    InputBuffer
+                };
+
+                int32 OutBufferSize = Audio::GetOutputBufferSize(Params);
+                ResampledBuffer.Reset();
+                ResampledBuffer.AddZeroed(OutBufferSize);
+
+                Audio::FResamplerResults Results;
+                Results.OutBuffer = &ResampledBuffer;
+                Audio::Resample(Params, Results);
+            }
+            else
+            {
+                ResampledBuffer.Reset();
+                ResampledBuffer.Append(Samples, NumSamples);
+            }
+
+            for (float F : ResampledBuffer)
+            {
+                float Clamped = FMath::Clamp(F, -1.f, 1.f);
+                VadInputBuffer.Add(static_cast<int16>(Clamped * 32767.f));
+            }
+
+            if (VadInputBuffer.Num() < FrameSize)
+            {
+                return false;
+            }
+
+            TArray<int16> Frame;
+            Frame.Append(VadInputBuffer.GetData(), FrameSize);
+
+            VadInputBuffer.RemoveAt(0, FrameSize, EAllowShrinking::No);
+
+            int Result = fvad_process(VadInstance, Frame.GetData(), FrameSize);
+
+            UE_LOG(LogTemp, Verbose, TEXT("[LocalAINpc | VAD] WebRTC Result = %d"), Result);
+
+            if (Result == -1)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | VAD] WebRTC VAD process failed!"));
+                return false;
+			}
+
+            return (Result == 1);
+        }
+    }
+
+    return false;
+}
+
+void UWhisperComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    Super::EndPlay(EndPlayReason);
+
     if (AudioCapture.IsStreamOpen())
     {
         AudioCapture.AbortStream();
+        AudioCapture.CloseStream();
     }
-    
+
     if (!RecordedAudioFolder.IsEmpty() && IFileManager::Get().DirectoryExists(*RecordedAudioFolder))
     {
         TArray<FString> FilesToDelete, TxtFiles;
         IFileManager::Get().FindFiles(FilesToDelete, *RecordedAudioFolder, TEXT("*.wav"));
         IFileManager::Get().FindFiles(TxtFiles, *RecordedAudioFolder, TEXT("*.txt"));
-		FilesToDelete.Append(TxtFiles);
+        FilesToDelete.Append(TxtFiles);
 
         for (const FString& File : FilesToDelete)
         {
@@ -326,5 +501,9 @@ void UWhisperComponent::BeginDestroy()
         UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Whisper] Cleaned up files in %s"), *RecordedAudioFolder);
     }
 
-    Super::BeginDestroy();
+    if (VadInstance)
+    {
+        fvad_free(VadInstance);
+        VadInstance = nullptr;
+    }
 }

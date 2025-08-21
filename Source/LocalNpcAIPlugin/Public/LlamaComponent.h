@@ -132,5 +132,6 @@ private:
     TArray<FString> GetTopKDocuments(const TArray<float>& QueryEmbedding);
     TArray<FString> RerankDocuments(const FString& Query, const TArray<FString>& Documents);
 
-	void BeginPlay() override;
+protected:
+	virtual void BeginPlay() override;
 };

@@ -118,5 +118,6 @@ private:
 
     UPlayerAiComponent* PlayerAiComponent;
 
-    void BeginPlay() override;
+protected:
+    virtual void BeginPlay() override;
 };

@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+using System.IO;
 using UnrealBuildTool;
+using UnrealBuildTool.Rules;
 
 public class LocalNpcAIPlugin : ModuleRules
 {
@@ -17,6 +19,7 @@ public class LocalNpcAIPlugin : ModuleRules
 		
 		PrivateIncludePaths.AddRange(
 			new string[] {
+                Path.Combine(ModuleDirectory, "Private", "ThirdParty", "libfvad", "include")
 				// ... add other private include paths required here ...
 			}
 			);
@@ -29,6 +32,7 @@ public class LocalNpcAIPlugin : ModuleRules
 				"AudioCaptureCore",
                 "EnhancedInput",
 				"UMG",
+                "AudioPlatformConfiguration",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
