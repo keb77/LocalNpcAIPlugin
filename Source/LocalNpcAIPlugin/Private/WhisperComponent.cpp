@@ -360,14 +360,15 @@ FString UWhisperComponent::SanitizeString(const FString& String)
     auto RegexReplace = [](const FString& InputStr, const FString& PatternStr) -> FString
         {
             FRegexPattern Pattern(PatternStr);
-            FRegexMatcher Matcher(Pattern, InputStr);
             FString Output = InputStr;
 
+            FRegexMatcher Matcher(Pattern, Output);
             while (Matcher.FindNext())
             {
-                int32 MatchBeginning = Matcher.GetMatchBeginning();
-                int32 MatchEnding = Matcher.GetMatchEnding();
-                Output.RemoveAt(MatchBeginning, MatchEnding - MatchBeginning);
+                int32 Start = Matcher.GetMatchBeginning();
+                int32 Length = Matcher.GetMatchEnding() - Start;
+                Output.RemoveAt(Start, Length);
+
                 Matcher = FRegexMatcher(Pattern, Output);
             }
 
@@ -375,8 +376,9 @@ FString UWhisperComponent::SanitizeString(const FString& String)
         };
 
     Result = RegexReplace(Result, TEXT("\\[[^\\]]*\\]"));
+
     Result = RegexReplace(Result, TEXT("\\*[^\\*]*\\*"));
-    Result = RegexReplace(Result, TEXT("<[^>]*>"));
+
     Result = Result.TrimStartAndEnd();
 
     return Result;

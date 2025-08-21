@@ -32,9 +32,40 @@ struct FKnowledgeEntry
     TArray<float> Embedding;
 };
 
+USTRUCT(BlueprintType)
+struct FNpcAction
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString Name;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString Description;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bHasTargetObject = false;
+};
+
+USTRUCT(BlueprintType)
+struct FNpcObject
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString Name;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString Description;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    AActor* ActorRef;
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLlamaResponseReceived, const FString&, Response);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLlamaStreamTokenReceived, const FString&, Token, bool, bDone);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLlamaChunkReceived, const FString&, Chunk, bool, bDone);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnLlamaActionReceived, const FString&, Action, AActor*, Object);
 
 UCLASS(ClassGroup = (NpcAI), meta = (BlueprintSpawnableComponent))
 class LOCALNPCAIPLUGIN_API ULlamaComponent : public UActorComponent
@@ -83,9 +114,14 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LocalAiNpc | Llama")
     void ClearChatHistory();
 
-
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG")
     ERagMode RagMode = ERagMode::Disabled;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides))
+    int32 EmbeddingPort = 8081;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode == ERagMode::EmbeddingPlusReranker", EditConditionHides))
+    int32 RerankerPort = 8082;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides))
     FString KnowledgePath;
@@ -102,11 +138,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides, ClampMin = "0"))
     int32 SentenceOverlap = 1;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode != ERagMode::Disabled", EditConditionHides))
-    int32 EmbeddingPort = 8081;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Actions")
+    TArray<FNpcAction> KnownActions;
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | RAG", meta = (EditCondition = "RagMode == ERagMode::EmbeddingPlusReranker", EditConditionHides))
-    int32 RerankerPort = 8082;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | Actions")
+    TArray<FNpcObject> KnownObjects;
+
+	UPROPERTY(BlueprintAssignable, Category = "LocalAiNpc | Actions")
+	FOnLlamaActionReceived OnActionReceived;
 
 private:
     TArray<FChatMessage> ChatHistory;
@@ -124,13 +163,15 @@ private:
 
     double ChunkStartTimeBenchmark = 0.0;
 
-
     TArray<FKnowledgeEntry> Knowledge;
     TArray<float> EmbedText(const FString& Text);
 	void GenerateKnowledge();
     float ComputeCosineSimilarity(const TArray<float>& A, const TArray<float>& B);
     TArray<FString> GetTopKDocuments(const TArray<float>& QueryEmbedding);
     TArray<FString> RerankDocuments(const FString& Query, const TArray<FString>& Documents);
+
+	void HandleNpcAction(const FString& ActionCommand);
+	FString BuildActionsSystemMessage();
 
 protected:
 	virtual void BeginPlay() override;

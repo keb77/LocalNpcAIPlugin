@@ -82,6 +82,11 @@ void UNpcAiComponent::BeginPlay()
     {
         WhisperComponent->RegisterComponent();
         WhisperComponent->Port = WhisperPort;
+		WhisperComponent->VadMode = VadMode;
+		WhisperComponent->SecondsOfSilenceBeforeSend = SecondsOfSilenceBeforeSend;
+		WhisperComponent->MinSpeechDuration = MinSpeechDuration;
+		WhisperComponent->EnergyThreshold = EnergyThreshold;
+		WhisperComponent->WebRtcVadAggressiveness = WebRtcVadAggressiveness;
 
         WhisperComponent->OnTranscriptionComplete.AddDynamic(this, &UNpcAiComponent::HandleWhisperTranscriptionComplete);
     }
@@ -99,8 +104,21 @@ void UNpcAiComponent::BeginPlay()
         LlamaComponent->RepeatPenalty = RepeatPenalty;
         LlamaComponent->bStream = bStream;
 
+		LlamaComponent->RagMode = RagMode;
+        LlamaComponent->EmbeddingPort = EmbeddingPort;
+        LlamaComponent->RerankerPort = RerankerPort;
+		LlamaComponent->KnowledgePath = KnowledgePath;
+		LlamaComponent->EmbeddingTopK = EmbeddingTopK;
+		LlamaComponent->RerankingTopN = RerankingTopN;
+		LlamaComponent->SentencesPerChunk = SentencesPerChunk;
+        LlamaComponent->SentenceOverlap = SentenceOverlap;
+
+		LlamaComponent->KnownActions = KnownActions;
+        LlamaComponent->KnownObjects = KnownObjects;
+		
 		LlamaComponent->OnResponseReceived.AddDynamic(this, &UNpcAiComponent::HandleLlamaResponseReceived);
         LlamaComponent->OnChunkReceived.AddDynamic(this, &UNpcAiComponent::HandleLlamaChunkReceived);
+        LlamaComponent->OnActionReceived.AddDynamic(this, &UNpcAiComponent::HandleLlamaActionReceived);
     }
 
     KokoroComponent = NewObject<UKokoroComponent>(this, UKokoroComponent::StaticClass(), TEXT("KokoroComponent"));
@@ -250,6 +268,11 @@ void UNpcAiComponent::HandleLlamaChunkReceived(const FString& Chunk, bool bDone)
     {
         UE_LOG(LogTemp, Error, TEXT("[LocalAINpc | NpcAiComponent] KokoroComponent is not initialized."));
     }
+}
+
+void UNpcAiComponent::HandleLlamaActionReceived(const FString& Action, AActor* Object)
+{
+    OnActionReceived.Broadcast(Action, Object);
 }
 
 void UNpcAiComponent::HandleKokoroSoundReady(FSoundWaveWithDuration SoundWave)

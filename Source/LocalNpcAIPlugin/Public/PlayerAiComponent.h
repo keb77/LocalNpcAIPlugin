@@ -18,10 +18,10 @@ class LOCALNPCAIPLUGIN_API UPlayerAiComponent : public USceneComponent
 public:
     UPlayerAiComponent();
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | General")
 	FString Name = TEXT("You");
 
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc", meta = (ClampMin = "0.0"))
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | General", meta = (ClampMin = "0.0"))
     float InteractionRadius = 1000.f;
 
     UFUNCTION(BlueprintCallable, Category = "LocalAiNpc")

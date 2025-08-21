@@ -63,7 +63,7 @@ void ULlamaComponent::SendChatMessage(FString Message)
                         FString NewSystemMessage = SystemMessage;
 
                         NewSystemMessage.Append(TEXT("\n\n"));
-                        NewSystemMessage.Append(TEXT("Relevant context: \n"));
+                        NewSystemMessage.Append(TEXT("Relevant context for the query: \n"));
                         for (const FString& Doc : RagDocuments)
                         {
                             NewSystemMessage.Append(Doc);
@@ -208,7 +208,7 @@ void ULlamaComponent::SendRequest(FString InSystemMessage)
             FString SanitizedResponse = SanitizeString(ResponseContent);
             int32 LengthBenchmark = ResponseContent.Len();
             UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Response received in %.2f ms, %d characters."), DurationBenchmark, LengthBenchmark);
-            UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Response: %s"), *SanitizedResponse);
+            UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Response: %s"), *ResponseContent);
 
             AsyncTask(ENamedThreads::GameThread, [this, SanitizedResponse]()
                 {
@@ -219,6 +219,14 @@ void ULlamaComponent::SendRequest(FString InSystemMessage)
             NewResponse.Role = "assistant";
             NewResponse.Content = SanitizedResponse;
             ChatHistory.Add(NewResponse);
+
+            FRegexPattern ActionPattern(TEXT("\\[\\[action: (.+?)\\]\\]"));
+            FRegexMatcher Matcher(ActionPattern, ResponseContent);
+            while (Matcher.FindNext())
+            {
+                FString ActionCommand = Matcher.GetCaptureGroup(1);
+                HandleNpcAction(ActionCommand);
+            }
         });
 
     Request->ProcessRequest();
@@ -417,10 +425,22 @@ void ULlamaComponent::SendRequestStreaming(FString InSystemMessage)
                 return;
             }
 
-            FString SanitizedResponse = SanitizeString(FullResponse);
-            AsyncTask(ENamedThreads::GameThread, [this, SanitizedResponse]()
+            AsyncTask(ENamedThreads::GameThread, [this, FullResponse]()
                 {
+                    FString SanitizedResponse = SanitizeString(FullResponse);
                     OnResponseReceived.Broadcast(SanitizedResponse);
+                    FChatMessage NewResponse;
+                    NewResponse.Role = "assistant";
+                    NewResponse.Content = SanitizedResponse;
+                    ChatHistory.Add(NewResponse);
+
+                    FRegexPattern ActionPattern(TEXT("\\[\\[action: (.+?)\\]\\]"));
+                    FRegexMatcher Matcher(ActionPattern, FullResponse);
+                    while (Matcher.FindNext())
+                    {
+                        FString ActionCommand = Matcher.GetCaptureGroup(1);
+                        HandleNpcAction(ActionCommand);
+                    }
                 });
         });
 }
@@ -545,28 +565,32 @@ void ULlamaComponent::HandleStreamChunk(const FString& Token, bool bDone)
 
 FString ULlamaComponent::SanitizeString(const FString& String)
 {
-    FString Result  = String;
-    
+    FString Result = String;
+
     auto RegexReplace = [](const FString& InputStr, const FString& PatternStr) -> FString
+    {
+        FRegexPattern Pattern(PatternStr);
+        FString Output = InputStr;
+
+        FRegexMatcher Matcher(Pattern, Output);
+        while (Matcher.FindNext())
         {
-            FRegexPattern Pattern(PatternStr);
-            FRegexMatcher Matcher(Pattern, InputStr);
-            FString Output = InputStr;
+            int32 Start = Matcher.GetMatchBeginning();
+            int32 Length = Matcher.GetMatchEnding() - Start;
+            Output.RemoveAt(Start, Length);
 
-            while (Matcher.FindNext())
-            {
-                int32 MatchBeginning = Matcher.GetMatchBeginning();
-                int32 MatchEnding = Matcher.GetMatchEnding();
-                Output.RemoveAt(MatchBeginning, MatchEnding - MatchBeginning);
-                Matcher = FRegexMatcher(Pattern, Output);
-            }
+            Matcher = FRegexMatcher(Pattern, Output);
+        }
 
-            return Output;
-        };
+        return Output;
+    };
+
+    Result = RegexReplace(Result, TEXT("\\[\\[action: .*?\\]\\]"));
 
     Result = RegexReplace(Result, TEXT("\\[[^\\]]*\\]"));
+
     Result = RegexReplace(Result, TEXT("\\*[^\\*]*\\*"));
-    Result = RegexReplace(Result, TEXT("<[^>]*>"));
+
     Result = Result.TrimStartAndEnd();
 
     return Result;
@@ -577,7 +601,6 @@ void ULlamaComponent::ClearChatHistory()
     ChatHistory.Empty();
     UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Chat history cleared"));
 }
-
 
 TArray<float> ULlamaComponent::EmbedText(const FString& Text)
 {
@@ -917,9 +940,90 @@ TArray<FString> ULlamaComponent::RerankDocuments(const FString& Query, const TAr
     return RerankedDocs;
 }
 
+void ULlamaComponent::HandleNpcAction(const FString& ActionCommand)
+{
+    FString Action;
+    FString Object;
+
+    FNpcAction* FoundAction = nullptr;
+    for (FNpcAction& A : KnownActions)
+    {
+        if (ActionCommand.StartsWith(A.Name, ESearchCase::IgnoreCase))
+        {
+            if (!FoundAction || A.Name.Len() > FoundAction->Name.Len())
+            {
+                FoundAction = &A;
+            }
+        }
+    }
+
+    if (FoundAction)
+    {
+        if (FoundAction->bHasTargetObject)
+        {
+            Object = ActionCommand.Mid(FoundAction->Name.Len()).TrimStartAndEnd();
+
+            FNpcObject* FoundObject = KnownObjects.FindByPredicate(
+                [&](const FNpcObject& O) { return O.Name.Equals(Object, ESearchCase::IgnoreCase); });
+
+            if (FoundObject)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Actions] Executing action \"%s\" on object \"%s\""), *FoundAction->Name, *FoundObject->Name);
+                OnActionReceived.Broadcast(FoundAction->Name, FoundObject->ActorRef);
+                return;
+            }
+        }
+        else
+        {
+            UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Actions] Executing action \"%s\""), *FoundAction->Name);
+            OnActionReceived.Broadcast(FoundAction->Name, nullptr);
+            return;
+        }
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[LocalAINpc | Actions] Unknown action command: %s"), *ActionCommand);
+}
+
+
+FString ULlamaComponent::BuildActionsSystemMessage()
+{
+    FString Message;
+    Message += TEXT("You can do two things:\n");
+    Message += TEXT("1. Speak normally as dialogue with the user.\n");
+    Message += TEXT("2. Perform actions by inserting action tags directly into your dialogue, if suitable in the current context.\n\n");
+
+    Message += TEXT("The action tag must always respect the following format:\n");
+    Message += TEXT("[[action: <action name> <optional object name>]]\n");
+
+    Message += TEXT("Examples:\n");
+    Message += TEXT("- I'm so tired [[action: sit]]\n");
+    Message += TEXT("- Follow me [[action: move to door]]\n\n");
+
+    Message += TEXT("The only actions you can use in the action tags are:\n");
+    for (const auto& Action : KnownActions)
+    {
+        Message += FString::Printf(TEXT("- %s: %s"), *Action.Name, *Action.Description);
+        if (Action.bHasTargetObject)
+        {
+            Message += TEXT(" (requires an object)");
+		}
+		Message += TEXT("\n");
+    }
+
+    Message += TEXT("\nThe only objects you can use in the action tags are:\n");
+    for (const auto& Object : KnownObjects)
+    {
+        Message += FString::Printf(TEXT("- %s: %s\n"), *Object.Name, *Object.Description);
+    }
+    
+    return Message;
+}
+
+
 void ULlamaComponent::BeginPlay()
 {
     Super::BeginPlay();
+
     if (RagMode != ERagMode::Disabled)
     {
 		UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] RAG mode enabled, generating knowledge..."));
@@ -929,5 +1033,11 @@ void ULlamaComponent::BeginPlay()
                 GenerateKnowledge();
                 UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] Knowledge generation complete."));
             });
+    }
+
+    if (!KnownActions.IsEmpty())
+    {
+		SystemMessage += TEXT("\n\n") + BuildActionsSystemMessage();
+		UE_LOG(LogTemp, Log, TEXT("[LocalAINpc | Llama] SystemMessage updated with known actions and objects."));
     }
 }

@@ -41,7 +41,6 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "LocalAiNpc | Whisper")
     FOnWhisperTranscriptionComplete OnTranscriptionComplete;
 
-
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LocalAiNpc | VAD")
     EVadMode VadMode = EVadMode::Disabled;
 
